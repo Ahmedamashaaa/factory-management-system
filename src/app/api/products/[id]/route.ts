@@ -13,22 +13,27 @@ interface Product {
   created_at: string;
 }
 
-// Define the context type explicitly
-interface RouteContext {
-  params: {
-    id: string;
-  };
+// Helper function to extract ID from URL
+function getIdFromUrl(url: string): number | null {
+  try {
+    const pathSegments = new URL(url).pathname.split('/');
+    const idString = pathSegments[pathSegments.length - 1];
+    const id = parseInt(idString, 10);
+    return isNaN(id) ? null : id;
+  } catch (e) {
+    return null;
+  }
 }
 
 // GET: Fetch a single product by ID
-export async function GET(req: NextRequest, context: RouteContext) {
-  const { params } = context; // Destructure params from context
-  try {
-    const id = parseInt(params.id, 10);
-    if (isNaN(id)) {
-      return NextResponse.json({ message: 'Invalid ID format' }, { status: 400 });
-    }
+export async function GET(req: NextRequest) { // Only req argument
+  const id = getIdFromUrl(req.url);
 
+  if (id === null) {
+    return NextResponse.json({ message: 'Invalid or missing ID in URL' }, { status: 400 });
+  }
+
+  try {
     const product = await executeFirst<Product>('SELECT * FROM Products WHERE product_id = ?', [id]);
 
     if (!product) {
@@ -37,20 +42,20 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     return NextResponse.json(product, { status: 200 });
   } catch (error) {
-    console.error(`Failed to fetch product ${params.id}:`, error);
+    console.error(`Failed to fetch product ${id}:`, error);
     return NextResponse.json({ message: 'Failed to fetch product' }, { status: 500 });
   }
 }
 
 // PUT: Update an existing product
-export async function PUT(req: NextRequest, context: RouteContext) {
-  const { params } = context; // Destructure params from context
-  try {
-    const id = parseInt(params.id, 10);
-    if (isNaN(id)) {
-      return NextResponse.json({ message: 'Invalid ID format' }, { status: 400 });
-    }
+export async function PUT(req: NextRequest) { // Only req argument
+  const id = getIdFromUrl(req.url);
 
+  if (id === null) {
+    return NextResponse.json({ message: 'Invalid or missing ID in URL' }, { status: 400 });
+  }
+
+  try {
     const body = await req.json();
     const { product_code, product_name, description, unit_of_measure, selling_price, reorder_level } = body;
 
@@ -85,15 +90,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (result.success && result.meta?.changes && result.meta.changes > 0) {
       return NextResponse.json({ message: 'Product updated successfully' }, { status: 200 });
     } else if (result.success && (!result.meta?.changes || result.meta.changes === 0)) {
-        // If success is true but changes is 0, it means the query ran but didn't change anything (e.g., data was the same)
-        return NextResponse.json({ message: 'Product found but no changes were made' }, { status: 200 }); 
+        return NextResponse.json({ message: 'Product found but no changes were made' }, { status: 200 });
     } else {
       console.error(`Failed to update product ${id}:`, result.error || 'Unknown D1 error');
       return NextResponse.json({ message: result.error || 'Failed to update product' }, { status: 500 });
     }
 
   } catch (error) {
-    console.error(`Product update error for ${params.id}:`, error);
+    console.error(`Product update error for ${id}:`, error);
     if (error instanceof SyntaxError) {
         return NextResponse.json({ message: 'Invalid JSON format in request body' }, { status: 400 });
     }
@@ -102,14 +106,14 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE: Delete a product
-export async function DELETE(req: NextRequest, context: RouteContext) {
-  const { params } = context; // Destructure params from context
-  try {
-    const id = parseInt(params.id, 10);
-    if (isNaN(id)) {
-      return NextResponse.json({ message: 'Invalid ID format' }, { status: 400 });
-    }
+export async function DELETE(req: NextRequest) { // Only req argument
+  const id = getIdFromUrl(req.url);
 
+  if (id === null) {
+    return NextResponse.json({ message: 'Invalid or missing ID in URL' }, { status: 400 });
+  }
+
+  try {
     // Check if product exists
     const existingProduct = await executeFirst('SELECT product_id FROM Products WHERE product_id = ?', [id]);
     if (!existingProduct) {
@@ -117,7 +121,6 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     // Add checks here if the product is used in BOMs, Sales Orders, Inventory etc. before allowing deletion
-    // For now, we proceed with deletion.
 
     const result = await executeRun('DELETE FROM Products WHERE product_id = ?', [id]);
 
@@ -125,16 +128,14 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     if (result.success && result.meta?.changes && result.meta.changes > 0) {
       return NextResponse.json({ message: 'Product deleted successfully' }, { status: 200 });
     } else if (result.success && (!result.meta?.changes || result.meta.changes === 0)) {
-        // If success is true but changes is 0, it means the query ran but didn't delete anything (already deleted?)
         return NextResponse.json({ message: 'Product not found or already deleted' }, { status: 404 });
     } else {
       console.error(`Failed to delete product ${id}:`, result.error || 'Unknown D1 error');
-      // Check for foreign key constraint errors if applicable
       return NextResponse.json({ message: result.error || 'Failed to delete product (possibly due to dependencies)' }, { status: 500 });
     }
 
   } catch (error) {
-    console.error(`Failed to delete product ${params.id}:`, error);
+    console.error(`Failed to delete product ${id}:`, error);
     return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
   }
 }

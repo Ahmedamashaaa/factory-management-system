@@ -13,8 +13,16 @@ interface Product {
   created_at: string;
 }
 
+// Define the context type explicitly
+interface RouteContext {
+  params: {
+    id: string;
+  };
+}
+
 // GET: Fetch a single product by ID
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, context: RouteContext) {
+  const { params } = context; // Destructure params from context
   try {
     const id = parseInt(params.id, 10);
     if (isNaN(id)) {
@@ -35,7 +43,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // PUT: Update an existing product
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, context: RouteContext) {
+  const { params } = context; // Destructure params from context
   try {
     const id = parseInt(params.id, 10);
     if (isNaN(id)) {
@@ -72,13 +81,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       [product_code || null, product_name, description || null, unit_of_measure, selling_price, reorder_level || 0, id]
     );
 
-    if (result.success && result.meta.rows_written > 0) {
+    // Use result.meta.changes for D1 write operations
+    if (result.success && result.meta?.changes && result.meta.changes > 0) {
       return NextResponse.json({ message: 'Product updated successfully' }, { status: 200 });
-    } else if (result.success && result.meta.rows_written === 0) {
-        return NextResponse.json({ message: 'Product update did not affect any rows' }, { status: 200 });
+    } else if (result.success && (!result.meta?.changes || result.meta.changes === 0)) {
+        // If success is true but changes is 0, it means the query ran but didn't change anything (e.g., data was the same)
+        return NextResponse.json({ message: 'Product found but no changes were made' }, { status: 200 }); 
     } else {
-      console.error(`Failed to update product ${id}:`, result);
-      return NextResponse.json({ message: 'Failed to update product' }, { status: 500 });
+      console.error(`Failed to update product ${id}:`, result.error || 'Unknown D1 error');
+      return NextResponse.json({ message: result.error || 'Failed to update product' }, { status: 500 });
     }
 
   } catch (error) {
@@ -91,7 +102,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // DELETE: Delete a product
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  const { params } = context; // Destructure params from context
   try {
     const id = parseInt(params.id, 10);
     if (isNaN(id)) {
@@ -109,14 +121,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
     const result = await executeRun('DELETE FROM Products WHERE product_id = ?', [id]);
 
-    if (result.success && result.meta.rows_written > 0) {
+    // Use result.meta.changes for D1 write operations
+    if (result.success && result.meta?.changes && result.meta.changes > 0) {
       return NextResponse.json({ message: 'Product deleted successfully' }, { status: 200 });
-    } else if (result.success && result.meta.rows_written === 0) {
+    } else if (result.success && (!result.meta?.changes || result.meta.changes === 0)) {
+        // If success is true but changes is 0, it means the query ran but didn't delete anything (already deleted?)
         return NextResponse.json({ message: 'Product not found or already deleted' }, { status: 404 });
     } else {
-      console.error(`Failed to delete product ${id}:`, result);
+      console.error(`Failed to delete product ${id}:`, result.error || 'Unknown D1 error');
       // Check for foreign key constraint errors if applicable
-      return NextResponse.json({ message: 'Failed to delete product (possibly due to dependencies)' }, { status: 500 });
+      return NextResponse.json({ message: result.error || 'Failed to delete product (possibly due to dependencies)' }, { status: 500 });
     }
 
   } catch (error) {
